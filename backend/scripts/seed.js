@@ -28,7 +28,7 @@ const samples = [
   ['road_hazard', 'tech-park', 'Broken barrier at the pedestrian crossing near the school gate.', 1, 'assigned'],
   ['graffiti', 'harbour-east', 'Graffiti on the underpass wall.', 9, 'new'],
 ];
-for (const [category, locationId, description, ageDays, status] of samples) {
+for (const [category, locationId, description, ageDays, status] of process.env.SEED_SAMPLES === '1' ? samples : []) {
   const createdAt = new Date(Date.now() - ageDays * 864e5).toISOString();
   const loc = LOCATIONS.find(l => l.id === locationId), team = TEAMS.find(t => t.id === CATEGORIES[category].team);
   const inc = { id: randomUUID(), category, locationId, locationName: loc.name, description, reporterId: ids['resident@pulsecity.test'], reporterName: 'Riya Resident',

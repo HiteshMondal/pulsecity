@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api, setToken } from './api.js';
 import { Ctx } from './ctx.js';
-import { Login, Dashboard, Report, Incidents, Detail, Reports, Users, Board } from './pages.jsx';
+import { Login, Dashboard, Report, Incidents, Detail, Reports, Users, Board, Account } from './pages.jsx';
 
 const useHash = () => {
   const [h, setH] = useState(location.hash.slice(1) || '/dashboard');
@@ -15,6 +15,7 @@ const NAV = [
   ['/reports', 'Reports', ['supervisor', 'admin']],
   ['/users', 'Team members', ['admin']],
   ['/board', 'Public board', ['resident', 'staff', 'supervisor', 'admin']],
+  ['/account', 'My account', ['resident', 'staff', 'supervisor', 'admin']],
 ];
 export default function App() {
   const [user, setUser] = useState(null), [meta, setMeta] = useState(null), [ready, setReady] = useState(false);
@@ -31,7 +32,7 @@ export default function App() {
   const [, p1, id] = path.split('/');
   let page;
   if (p1 === 'incidents' && id) page = <Detail id={id} key={id} />;
-  else page = { dashboard: <Dashboard />, report: <Report />, incidents: <Incidents qs={qs} key={qs} />, reports: <Reports />, users: <Users />, board: <Board /> }[p1] || <Dashboard />;
+  else page = { dashboard: <Dashboard />, report: <Report />, incidents: <Incidents qs={qs} key={qs} />, reports: <Reports />, users: <Users />, board: <Board />, account: <Account /> }[p1] || <Dashboard />;
   return (
     <Ctx.Provider value={ctx}>
       <div className="shell">

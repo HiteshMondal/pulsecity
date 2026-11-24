@@ -3,7 +3,6 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
-import { PutCommand, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -12,6 +11,7 @@ import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 import { cfg, CATEGORIES, LOCATIONS, TEAMS, STATUSES } from './config.js';
 import { doc, T, scanAll } from './db.js';
 import { prioritize, dueAt } from './priority.js';
+import { PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { log } from './log.js';
 
 const s3 = new S3Client({ region: cfg.region }), sns = new SNSClient({ region: cfg.region }), lam = new LambdaClient({ region: cfg.region });
@@ -91,6 +91,20 @@ const counts = l => ({
   resolved: l.filter(i => i.status === 'closed').length,
 });
 
+async function removeUser(u) {
+  if (u.role === 'admin') {
+    const admins = await scanAll({ TableName: T.users, FilterExpression: '#r = :a',
+      ExpressionAttributeNames: { '#r': 'role' }, ExpressionAttributeValues: { ':a': 'admin' } });
+    if (admins.length <= 1) throw bad('You cannot delete the last administrator');
+  }
+  if (u.role === 'resident') { // keep the reports for the city, remove the person's name
+    const q = await doc.send(new QueryCommand({ TableName: T.incidents, IndexName: 'reporter-index',
+      KeyConditionExpression: 'reporterId = :r', ExpressionAttributeValues: { ':r': u.id } }));
+    for (const i of q.Items) await update(i.id, { reporterName: 'Deleted user' });
+  }
+  await doc.send(new DeleteCommand({ TableName: T.users, Key: { id: u.id } }));
+}
+
 const r = Router();
 const authLimiter = rateLimit({ windowMs: 15 * 60e3, limit: 30, standardHeaders: true, legacyHeaders: false });
 const publicLimiter = rateLimit({ windowMs: 60e3, limit: 60, standardHeaders: true, legacyHeaders: false });
@@ -138,6 +152,22 @@ r.post('/users', auth, need('admin'), wrap(async (req, res) => {
   if (role === 'staff' && !team(teamId)) throw bad('Choose a team for staff members');
   res.status(201).json({ user: pub(await createUser(req.body)) });
 }));
+
+r.delete('/auth/me', auth, wrap(async (req, res) => {
+  const { Item } = await doc.send(new GetCommand({ TableName: T.users, Key: { id: req.user.id } }));
+  if (!Item) throw new HttpError(401, 'Account no longer exists');
+  if (!(await bcrypt.compare(String(req.body?.password || ''), Item.passwordHash))) throw new HttpError(403, 'Password is incorrect');
+  await removeUser(Item);
+  res.json({ ok: true });
+}));
+
+r.delete('/users/:id', auth, need('admin'), wrap(async (req, res) => {
+  const { Item } = await doc.send(new GetCommand({ TableName: T.users, Key: { id: req.params.id } }));
+  if (!Item || Item.role === 'resident') throw new HttpError(404, 'User not found');
+  if (Item.id === req.user.id) throw bad('Use "My account" to delete your own account');
+  await removeUser(Item);
+  res.json({ ok: true });
+}));
 r.get('/users', auth, need(...MGR), wrap(async (req, res) => {
   const all = await scanAll({ TableName: T.users, FilterExpression: '#r <> :res', ExpressionAttributeNames: { '#r': 'role' }, ExpressionAttributeValues: { ':res': 'resident' } });
   const users = all.filter(u => !req.query.teamId || u.teamId === req.query.teamId).map(pub);
@@ -147,6 +177,7 @@ r.get('/users', auth, need(...MGR), wrap(async (req, res) => {
 // ---------- uploads (S3 presigned POST: size + type enforced by S3) ----------
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 r.post('/uploads/presign', auth, wrap(async (req, res) => {
+  if (!cfg.bucket) throw new HttpError(503, 'Photo uploads are not configured yet');
   const type = req.body.contentType;
   if (!EXT[type]) throw bad('Upload a JPEG, PNG or WebP photo');
   const Key = `incidents/${req.user.id}/${randomUUID()}.${EXT[type]}`;

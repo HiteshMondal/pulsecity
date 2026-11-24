@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # PulseCity - provisions DynamoDB, S3, SNS, IAM, Lambda, CloudWatch with the AWS CLI. Idempotent; re-run to redeploy Lambdas.
-# Usage: ALERT_EMAIL=you@example.com APP_ORIGIN=http://<ec2-public-dns> ./infra/provision.sh
+# Usage: ./infra/provision.sh   (reads ALERT_EMAIL, AWS_REGION, APP_ORIGIN from backend/.env; env vars override)
+
 set -euo pipefail
 cd "$(dirname "$0")/.."
-REGION=${AWS_REGION:-ap-south-1}; export AWS_DEFAULT_REGION=$REGION
+envget(){ if [ -f backend/.env ]; then sed -n "s/^$1=//p" backend/.env | tail -n1 | tr -d "\r\"'"; fi; }
+REGION=${AWS_REGION:-$(envget AWS_REGION)}; REGION=${REGION:-ap-south-1}; export AWS_DEFAULT_REGION=$REGION
+ALERT_EMAIL=${ALERT_EMAIL:-$(envget ALERT_EMAIL)}
 ACCT=$(aws sts get-caller-identity --query Account --output text)
-P=pulsecity; BUCKET=$P-photos-$ACCT-$REGION; APP_ORIGIN=${APP_ORIGIN:-http://localhost:4000}
+APP_ORIGIN=${APP_ORIGIN:-$(envget APP_ORIGIN)}; APP_ORIGIN=${APP_ORIGIN:-http://localhost:4000}
+P=pulsecity; BUCKET=$P-photos-$ACCT-$REGION
 say(){ printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 say "DynamoDB tables"
@@ -56,7 +60,7 @@ cat > /tmp/lambda-policy.json <<EOF
 EOF
 cat > /tmp/ec2-policy.json <<EOF
 {"Version":"2012-10-17","Statement":[
- {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query","dynamodb:Scan"],"Resource":["$TABLES","$TABLES/index/*"]},
+ {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:DeleteItem","dynamodb:Query","dynamodb:Scan"],"Resource":["$TABLES","$TABLES/index/*"]},
  {"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],"Resource":"arn:aws:s3:::$BUCKET/incidents/*"},
  {"Effect":"Allow","Action":"sns:Publish","Resource":"$TOPIC"},
  {"Effect":"Allow","Action":"lambda:InvokeFunction","Resource":"arn:aws:lambda:$REGION:$ACCT:function:$P-priority"}]}
@@ -79,10 +83,10 @@ deploy(){ # name dir envjson
   if aws lambda get-function --function-name $P-$1 >/dev/null 2>&1; then
     aws lambda update-function-code --function-name $P-$1 --zip-file fileb:///tmp/$1.zip >/dev/null
     aws lambda wait function-updated --function-name $P-$1
-    aws lambda update-function-configuration --function-name $P-$1 --environment "$3" >/dev/null
+    aws lambda update-function-configuration --function-name $P-$1 --environment "$2" >/dev/null
   else
     aws lambda create-function --function-name $P-$1 --runtime nodejs20.x --handler index.handler --role $ROLE --timeout 60 --memory-size 256 \
-      --zip-file fileb:///tmp/$1.zip --environment "$3" >/dev/null
+      --zip-file fileb:///tmp/$1.zip --environment "$2" >/dev/null
   fi; echo "deployed $P-$1"; }
 deploy priority '{"Variables":{"LOG_LEVEL":"info"}}'
 deploy overdue "{\"Variables\":{\"INCIDENTS_TABLE\":\"$P-incidents\",\"HISTORY_TABLE\":\"$P-history\",\"SNS_TOPIC_ARN\":\"$TOPIC\"}}"
@@ -94,6 +98,11 @@ aws lambda add-permission --function-name $P-overdue --statement-id events-hourl
 aws events put-targets --rule $P-overdue-hourly --targets "Id=1,Arn=arn:aws:lambda:$REGION:$ACCT:function:$P-overdue" >/dev/null
 
 say "Done. Put these in backend/.env"
+
+envget(){ if [ -f backend/.env ]; then sed -n "s/^$1=//p" backend/.env | tail -n1 | tr -d "\r\"'"; fi; }
+REGION=${AWS_REGION:-$(envget AWS_REGION)}; REGION=${REGION:-ap-south-1}; export AWS_DEFAULT_REGION=$REGION
+ALERT_EMAIL=${ALERT_EMAIL:-$(envget ALERT_EMAIL)}
+
 cat <<EOF
 AWS_REGION=$REGION
 PHOTO_BUCKET=$BUCKET

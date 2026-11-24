@@ -201,8 +201,12 @@ export function Reports() {
 }
 
 export function Users() {
-  const { meta } = useApp(); const [f, setF] = useState({ name: '', email: '', password: '', role: 'staff', teamId: meta.teams[0].id }), [e, setE] = useState(''), [ok, setOk] = useState(''), [n, setN] = useState(0);
+  const { meta, user } = useApp(); const [f, setF] = useState({ name: '', email: '', password: '', role: 'staff', teamId: meta.teams[0].id }), [e, setE] = useState(''), [ok, setOk] = useState(''), [n, setN] = useState(0);
   const [d] = useLoad('/users', [n]); const set = k => ev => setF({ ...f, [k]: ev.target.value });
+  const del = async u => {
+    if (!confirm(`Delete ${u.name}?`)) return; setE(''); setOk('');
+    try { await api(`/users/${u.id}`, { method: 'DELETE' }); setOk(`${u.name} was deleted.`); setN(n + 1); } catch (x) { setE(x.message); }
+  };
   const go = async ev => { ev.preventDefault(); setE(''); setOk(''); try { await api('/users', { method: 'POST', body: f }); setOk(`${f.name} can now sign in.`); setF({ ...f, name: '', email: '', password: '' }); setN(n + 1); } catch (x) { setE(x.message); } };
   return (<>
     <Head title="Team members" sub="Create accounts for crews, supervisors and administrators." />
@@ -216,7 +220,7 @@ export function Users() {
         <Err e={e} />{ok && <p className="okmsg" role="status">{ok}</p>}
         <button className="primary">Create account</button>
       </form>
-      <section className="card flush"><div className="scroll"><table><thead><tr><th>Name</th><th>Role</th><th>Team</th></tr></thead><tbody>{(d?.users || []).map(u => <tr key={u.id}><td>{u.name}<small className="dup"> {u.email}</small></td><td>{u.role}</td><td>{meta.teams.find(t => t.id === u.teamId)?.name || '—'}</td></tr>)}</tbody></table></div></section>
+      <section className="card flush"><div className="scroll"><table><thead><tr><th>Name</th><th>Role</th><th>Team</th><th></th></tr></thead><tbody>{(d?.users || []).map(u => <tr key={u.id}><td>{u.name}<small className="dup"> {u.email}</small></td><td>{u.role}</td><td>{meta.teams.find(t => t.id === u.teamId)?.name || '—'}</td><td>{u.id !== user.id && <button className="link" onClick={() => del(u)}>Delete</button>}</td></tr>)}</tbody></table></div></section>
     </div>
   </>);
 }
@@ -228,5 +232,27 @@ export function Board() {
     <Err e={e} />
     {d && <><div className="stats three"><div className="stat"><b>{d.stats.total}</b><span>Reported</span></div><div className="stat hot"><b>{d.stats.open}</b><span>Open</span></div><div className="stat ok"><b>{d.stats.resolved}</b><span>Resolved</span></div></div>
       <div className="card flush"><div className="scroll"><table><thead><tr><th>Issue</th><th>Area</th><th>Priority</th><th>Status</th><th>Reported</th></tr></thead><tbody>{d.incidents.map((i, n) => <tr key={n}><td>{meta.categories[i.category]?.label}</td><td>{i.locationName}</td><td><Pri p={i.priority} /></td><td><St s={i.status} /></td><td>{ago(i.createdAt)}</td></tr>)}</tbody></table></div></div></>}
+  </>);
+}
+
+export function Account() {
+  const { user, logout } = useApp();
+  const [pw, setPw] = useState(''), [e, setE] = useState(''), [busy, setBusy] = useState(false);
+  const go = async ev => {
+    ev.preventDefault();
+    if (!confirm('Delete your account permanently? This cannot be undone.')) return;
+    setBusy(true); setE('');
+    try { await api('/auth/me', { method: 'DELETE', body: { password: pw } }); logout(); }
+    catch (x) { setE(x.message); setBusy(false); }
+  };
+  return (<>
+    <Head title="My account" sub={`${user.name} · ${user.email}`} />
+    <form className="card form" onSubmit={go}>
+      <h2>Delete my account</h2>
+      <p>Your sign-in is removed permanently. Reports you filed stay on record without your name.</p>
+      <label>Confirm your password<input type="password" required value={pw} onChange={ev => setPw(ev.target.value)} autoComplete="current-password" /></label>
+      <Err e={e} />
+      <button className="danger" disabled={busy}>Delete my account</button>
+    </form>
   </>);
 }

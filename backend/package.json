@@ -4,7 +4,12 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
-  "scripts": { "start": "node src/server.js", "dev": "node --watch src/server.js", "seed": "node scripts/seed.js" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file=.env src/server.js",
+    "seed": "node --env-file=.env scripts/seed.js",
+    "clear-samples": "node --env-file=.env scripts/clear-samples.js"
+  },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/client-lambda": "^3.600.0",

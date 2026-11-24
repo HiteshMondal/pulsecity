@@ -101,33 +101,60 @@ Severity per category, weights, keywords, thresholds and SLAs live in [`backend/
 
 ## 🚀 Quick start
 
-**Prerequisites:** Node.js 20+, an AWS account, [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured (`aws configure`) with permissions to create DynamoDB, S3, SNS, IAM, Lambda, CloudWatch and EventBridge resources, plus Python 3 (used to zip Lambdas).
+**Prerequisites:** Node.js 20.6+ (the scripts use `--env-file`), an AWS account, [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured (`aws configure`) with permissions to create DynamoDB, S3, SNS, IAM, Lambda, CloudWatch and EventBridge resources, plus Python 3 (used to zip the Lambdas).
 
-### 1 · Provision AWS resources (about 2 minutes)
+### 1 · Configure
 
 ```bash
-ALERT_EMAIL=you@example.com AWS_REGION=ap-south-1 ./infra/provision.sh
+cp backend/.env.example backend/.env
 ```
 
-This creates the tables, a private S3 bucket, the SNS topic, IAM roles, both Lambdas, the hourly schedule, log groups and alarms. It is safe to re-run. At the end it prints the values for your `.env`. Confirm the SNS subscription email.
+Open `backend/.env` and set:
 
-### 2 · Configure the API
+| Variable | Value |
+|---|---|
+| `ALERT_EMAIL` | Address that receives assignment and overdue alerts |
+| `AWS_REGION` | Your region (default `ap-south-1`) |
+| `JWT_SECRET` | A long random string. Generate one with the command below |
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+### 2 · Provision AWS resources (about 2 minutes)
+
+```bash
+./infra/provision.sh
+```
+
+The script reads `ALERT_EMAIL`, `AWS_REGION` and `APP_ORIGIN` from `backend/.env`. It creates the tables, a private S3 bucket, the SNS topic, IAM roles, both Lambdas, the hourly schedule, log groups and alarms. It is safe to re-run.
+
+At the end it prints `PHOTO_BUCKET`, `SNS_TOPIC_ARN` and `PRIORITY_LAMBDA`. Paste them into `backend/.env`, then **click the confirmation link in the SNS email**, or alerts won't arrive.
+
+### 3 · Start the API
 
 ```bash
 cd backend
-cp .env.example .env      # paste the printed values; set a long random JWT_SECRET
 npm install
-npm run seed              # demo users + sample incidents
+npm run seed              # demo users only
 npm run dev               # API on http://localhost:4000
 ```
 
-### 3 · Run the web app
+To also create 8 sample incidents, run `SEED_SAMPLES=1 npm run seed`. To remove them later, run `npm run clear-samples`.
+
+After editing `.env`, stop the API with `Ctrl+C` and start it again. `--watch` only restarts on source file changes, not on `.env` changes.
+
+### 4 · Start the web app
+
+In a second terminal:
 
 ```bash
 cd frontend
 npm install
 npm run dev               # http://localhost:5173 (proxies /api to :4000)
 ```
+
+Open http://localhost:5173 and sign in with a demo account.
 
 ### 🔑 Demo accounts (password `PulseCity#2026`)
 
@@ -138,7 +165,16 @@ npm run dev               # http://localhost:5173 (proxies /api to :4000)
 | Resident | `resident@pulsecity.test` |
 | Staff | `roads@` · `drainage@` · `lighting@` · `sanitation@pulsecity.test` |
 
-> Change or delete these accounts before real use. Set `SEED_PASSWORD` to choose your own demo password.
+> Change or delete these accounts before real use. Set `SEED_PASSWORD` in `backend/.env` to choose your own demo password before running the seed.
+
+### 🛠️ Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `node: bad option: --env-file` | Upgrade Node.js to 20.6 or newer |
+| "Failed to fetch" when submitting a report with a photo | `PHOTO_BUCKET` in `.env` is still the placeholder, or the API wasn't restarted after editing `.env`. Re-run `./infra/provision.sh` to refresh the bucket's CORS rules |
+| `ERESOLVE` during `npm install` in `frontend` | Keep `vite` at `^5.4.0` in `frontend/package.json`, delete `node_modules` and `package-lock.json`, then reinstall |
+| Public board shows incidents you didn't create | Run `cd backend && npm run clear-samples` |
 
 ---
 
@@ -222,7 +258,40 @@ pulsecity/
 
 ## 🧹 Clean-up
 
-Delete the stacks of resources to avoid charges: the three DynamoDB tables, the S3 bucket (empty it first), the SNS topic, both Lambdas, the `pulsecity-overdue-hourly` rule, the `pulsecity-*` IAM roles and instance profile, the log groups, alarms, and the EC2 instance.
+When you are done testing, delete everything `provision.sh` created so you are not billed:
+
+```bash
+chmod +x infra/teardown.sh    # only needed once
+./infra/teardown.sh           # asks you to type 'delete' to confirm
+```
+
+For non-interactive use (CI or scripts), skip the prompt with `YES=1 ./infra/teardown.sh`.
+
+**This is irreversible.** It deletes:
+
+- the three DynamoDB tables (all users and incidents)
+- the S3 photo bucket and every photo in it
+- both Lambda functions and the `pulsecity-overdue-hourly` schedule rule
+- the SNS topic and its email subscription
+- the CloudWatch alarms, metric filter and log groups
+- the `pulsecity-lambda` and `pulsecity-ec2` IAM roles and the instance profile
+
+The script reads `AWS_REGION` from `backend/.env`, so it targets the same region as `provision.sh`.
+
+**Not removed:** `provision.sh` never creates EC2 resources, so `teardown.sh` can't remove them. If you deployed to EC2, terminate the instance yourself, release any Elastic IP, delete its EBS volumes and security group, and remove any VPC endpoints.
+
+To start again later, run `./infra/provision.sh` (it recreates the same names, so your `.env` stays valid), then `npm run seed` for demo users.
+
+Check that nothing is left:
+
+```bash
+aws dynamodb list-tables
+aws s3 ls | grep pulsecity
+aws lambda list-functions --query 'Functions[].FunctionName'
+aws sns list-topics
+```
+
+Then look at the Billing console the next day.
 
 ## 📝 Scope notes
 
