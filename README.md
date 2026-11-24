@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/PulseCity-Smart%20City%20Issue%20Intelligence-0d3b3a?style=for-the-badge&labelColor=ff7a2f" alt="PulseCity" />
-
 # 🏙️ PulseCity
 
 ### See it. Report it. Watch it get fixed.

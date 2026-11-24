@@ -8,9 +8,47 @@ export const DEFAULT_RULES = {
   slaHours: { urgent: 24, high: 72, medium: 120, low: 240 },
 };
 const load = () => {
-  try { return process.env.PRIORITY_RULES_JSON ? { ...DEFAULT_RULES, ...JSON.parse(process.env.PRIORITY_RULES_JSON) } : DEFAULT_RULES; }
-  catch { return DEFAULT_RULES; }
+  try {
+    if (!process.env.PRIORITY_RULES_JSON) {
+      return DEFAULT_RULES;
+    }
+
+    const override = JSON.parse(process.env.PRIORITY_RULES_JSON);
+
+    return {
+      ...DEFAULT_RULES,
+      ...override,
+
+      severity: {
+        ...DEFAULT_RULES.severity,
+        ...override.severity
+      },
+
+      weights: {
+        ...DEFAULT_RULES.weights,
+        ...override.weights
+      },
+
+      thresholds: {
+        ...DEFAULT_RULES.thresholds,
+        ...override.thresholds
+      },
+
+      slaHours: {
+        ...DEFAULT_RULES.slaHours,
+        ...override.slaHours
+      },
+
+      keywords: Array.isArray(override.keywords)
+        ? override.keywords
+        : DEFAULT_RULES.keywords
+    };
+
+  } catch {
+    return DEFAULT_RULES;
+  }
 };
+
 export const rules = load();
 
 export function prioritize(inc, now = Date.now()) {

@@ -25,7 +25,14 @@ app.use((err, req, res, _next) => {
   if (err.name === 'ConditionalCheckFailedException') err = new HttpError(409, 'This incident was just updated by someone else. Refresh and try again.');
   if (err.type === 'entity.parse.failed') err = new HttpError(400, 'Invalid request body');
   const status = err.status || 500;
-  if (status >= 500) log('error', 'request.failed', { path: req.path, err: err.message });
+  if (status >= 500) {
+    log('error', 'request.failed', {
+      path: req.path,
+      method: req.method,
+      message: err.message,
+      stack: err.stack
+    });
+  }
   res.status(status).json({ error: status >= 500 ? 'Something went wrong. Please try again.' : err.message });
 });
 const server = app.listen(cfg.port, () => log('info', 'server.started', { port: cfg.port, env: cfg.env }));

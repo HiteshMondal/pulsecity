@@ -13,7 +13,20 @@ P=pulsecity; BUCKET=$P-photos-$ACCT-$REGION
 say(){ printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 say "DynamoDB tables"
-mk(){ aws dynamodb create-table --billing-mode PAY_PER_REQUEST --sse-specification Enabled=true "$@" >/dev/null 2>&1 && echo "created $2" || echo "exists  $2"; }
+mk(){
+  local table="$2"
+
+  if aws dynamodb describe-table \
+      --table-name "$table" >/dev/null 2>&1; then
+    echo "exists $table"
+  else
+    aws dynamodb create-table \
+      --billing-mode PAY_PER_REQUEST \
+      --sse-specification Enabled=true "$@" >/dev/null
+
+    echo "created $table"
+  fi
+}
 mk --table-name $P-users --attribute-definitions AttributeName=id,AttributeType=S AttributeName=email,AttributeType=S \
   --key-schema AttributeName=id,KeyType=HASH \
   --global-secondary-indexes '[{"IndexName":"email-index","KeySchema":[{"AttributeName":"email","KeyType":"HASH"}],"Projection":{"ProjectionType":"ALL"}}]'
@@ -22,6 +35,62 @@ mk --table-name $P-incidents --attribute-definitions AttributeName=id,AttributeT
   --global-secondary-indexes '[{"IndexName":"reporter-index","KeySchema":[{"AttributeName":"reporterId","KeyType":"HASH"},{"AttributeName":"createdAt","KeyType":"RANGE"}],"Projection":{"ProjectionType":"ALL"}},{"IndexName":"location-index","KeySchema":[{"AttributeName":"locationId","KeyType":"HASH"},{"AttributeName":"createdAt","KeyType":"RANGE"}],"Projection":{"ProjectionType":"ALL"}}]'
 mk --table-name $P-history --attribute-definitions AttributeName=incidentId,AttributeType=S AttributeName=ts,AttributeType=S \
   --key-schema AttributeName=incidentId,KeyType=HASH AttributeName=ts,KeyType=RANGE
+
+ensure_gsi() {
+  local table="$1" index="$2" hash="$3"
+  local range="${4:-}" status
+
+  aws dynamodb wait table-exists --table-name "$table"
+
+  status=$(aws dynamodb describe-table \
+    --table-name "$table" \
+    --query "Table.GlobalSecondaryIndexes[?IndexName=='$index'].IndexName | [0]" \
+    --output text)
+
+  if [[ "$status" != "$index" ]]; then
+
+    local attrs=(
+      --attribute-definitions
+      "AttributeName=$hash,AttributeType=S"
+    )
+
+    local keys="[{\"AttributeName\":\"$hash\",\"KeyType\":\"HASH\"}]"
+
+    if [[ -n "$range" ]]; then
+      attrs+=("AttributeName=$range,AttributeType=S")
+
+      keys="[{\"AttributeName\":\"$hash\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"$range\",\"KeyType\":\"RANGE\"}]"
+    fi
+
+    aws dynamodb update-table \
+      --table-name "$table" \
+      "${attrs[@]}" \
+      --global-secondary-index-updates \
+      "{\"Create\":{\"IndexName\":\"$index\",\"KeySchema\":$keys,\"Projection\":{\"ProjectionType\":\"ALL\"}}}" \
+      >/dev/null
+  fi
+
+  for _ in {1..120}; do
+    status=$(aws dynamodb describe-table \
+      --table-name "$table" \
+      --query "Table.GlobalSecondaryIndexes[?IndexName=='$index'].IndexStatus | [0]" \
+      --output text)
+
+    [[ "$status" == "ACTIVE" ]] && return 0
+
+    sleep 5
+  done
+
+  echo "GSI $index on $table did not become ACTIVE" >&2
+  return 1
+}
+
+ensure_gsi "$P-users" email-index email
+
+ensure_gsi "$P-incidents" reporter-index reporterId createdAt
+
+ensure_gsi "$P-incidents" location-index locationId createdAt
+
 for t in users incidents history; do aws dynamodb update-continuous-backups --table-name $P-$t --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true >/dev/null 2>&1 || true; done
 
 say "S3 bucket (private, encrypted, CORS for browser uploads)"

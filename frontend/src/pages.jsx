@@ -10,8 +10,28 @@ const St = ({ s }) => <span className={`b s-${s}`}>{lbl(s)}</span>;
 const Err = ({ e }) => e ? <p className="err" role="alert">{e}</p> : null;
 const Head = ({ title, sub, children }) => <header className="head"><div><h1>{title}</h1>{sub && <p>{sub}</p>}</div>{children}</header>;
 const useLoad = (path, deps = []) => {
-  const [d, setD] = useState(null), [e, setE] = useState('');
-  useEffect(() => { setD(null); api(path).then(setD).catch(x => setE(x.message)); }, deps); // eslint-disable-line
+  const [d, setD] = useState(null);
+  const [e, setE] = useState('');
+
+  useEffect(() => {
+    let active = true;
+
+    setD(null);
+    setE('');
+
+    api(path)
+      .then(data => {
+        if (active) setD(data);
+      })
+      .catch(error => {
+        if (active) setE(error.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [path, ...deps]);
+
   return [d, e];
 };
 
@@ -43,7 +63,30 @@ export function Login({ onAuth }) {
   return (
     <div className="login">
       <section className="hero">
-        <svg className="ecg" viewBox="0 0 600 120" aria-hidden><path d="M0 70h150l30-55 50 100 40-70 30 25h300" /></svg>
+        <svg className="city-art" viewBox="0 0 960 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+          <defs>
+            <linearGradient id="cityFar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#54b9a8" stopOpacity=".2" /><stop offset="1" stopColor="#0b3534" stopOpacity=".48" /></linearGradient>
+            <linearGradient id="cityNear" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#278d80" stopOpacity=".9" /><stop offset="1" stopColor="#082b30" stopOpacity=".96" /></linearGradient>
+          </defs>
+          <circle className="city-sun" cx="760" cy="160" r="78" />
+          <g className="city-far" fill="url(#cityFar)">
+            <path d="M0 350V244h54v-42h48v148h46V229h42v-62h58v183h46V216h38v-48h42v182h43V220h70v130h38V185h65v165h42V235h55v115h45V200h44v150h65V238h52v112h65v170H0z" />
+          </g>
+          <g className="city-mid" fill="#145c59" opacity=".92">
+            <path d="M48 390V276h82v114zm96 0V224h92v166zm106 0V270h65v120zm81 0V202h106v188zm120 0V251h86v139zm99 0V184h104v206zm119 0V260h80v130zm94 0V225h92v165z" />
+          </g>
+          <g className="city-near" fill="url(#cityNear)">
+            <path d="M105 420V324h116v96zm132 0V278h108v142zm126 0V314h132v106zm150 0V248h113v172zm130 0V300h120v120zm139 0V274h98v146z" />
+          </g>
+          <g className="city-windows" fill="#b8eee0">
+            <path d="M126 345h10v13h-10zm22 0h10v13h-10zm22 0h10v13h-10zm22 0h10v13h-10zM253 302h10v13h-10zm23 0h10v13h-10zm23 0h10v13h-10zm-46 27h10v13h-10zm23 0h10v13h-10zm23 0h10v13h-10zM382 339h11v14h-11zm24 0h11v14h-11zm24 0h11v14h-11zm-48 26h11v14h-11zm24 0h11v14h-11zm24 0h11v14h-11zM530 278h11v14h-11zm25 0h11v14h-11zm25 0h11v14h-11zm-50 28h11v14h-11zm25 0h11v14h-11zm25 0h11v14h-11zM666 326h11v14h-11zm25 0h11v14h-11zm25 0h11v14h-11zm-50 28h11v14h-11zm25 0h11v14h-11zm25 0h11v14h-11zM813 301h10v13h-10zm22 0h10v13h-10zm22 0h10v13h-10z" />
+          </g>
+          <path className="city-road-shadow" d="M-30 502C190 420 318 450 472 485s307 38 530-48" />
+          <path className="city-road" d="M-30 502C190 420 318 450 472 485s307 38 530-48" />
+          <path className="city-route" d="M30 484C200 426 325 457 474 485s280 34 448-25" />
+          <g className="city-pin" transform="translate(265 420)"><path d="M0 0c-17 0-29 12-29 28 0 21 29 49 29 49s29-28 29-49C29 12 17 0 0 0z" fill="#ff9852" /><circle cy="27" r="9" fill="#fff4e9" /></g>
+          <g className="city-pin city-pin-two" transform="translate(735 425)"><path d="M0 0c-14 0-24 10-24 24 0 18 24 42 24 42s24-24 24-42C24 10 14 0 0 0z" fill="#70d7bd" /><circle cy="23" r="7" fill="#eafff8" /></g>
+        </svg>
         <h1>See it. Report it.<br />Watch it get fixed.</h1>
         <p>Blocked drains, potholes, dead streetlights: tell your city once, follow the repair from report to verified fix.</p>
         <a className="ghost" href="#/board">View the public board</a>

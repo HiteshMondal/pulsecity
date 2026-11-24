@@ -31,12 +31,24 @@ const samples = [
 for (const [category, locationId, description, ageDays, status] of process.env.SEED_SAMPLES === '1' ? samples : []) {
   const createdAt = new Date(Date.now() - ageDays * 864e5).toISOString();
   const loc = LOCATIONS.find(l => l.id === locationId), team = TEAMS.find(t => t.id === CATEGORIES[category].team);
-  const inc = { id: randomUUID(), category, locationId, locationName: loc.name, description, reporterId: ids['resident@pulsecity.test'], reporterName: 'Riya Resident',
+  const inc = { id: `sample-${category}-${locationId}`, category, locationId, locationName: loc.name, description, reporterId: ids['resident@pulsecity.test'], reporterName: 'Riya Resident',
     status, createdAt, updatedAt: createdAt, overdue: false };
   Object.assign(inc, prioritize(inc)); inc.dueAt = dueAt(createdAt, inc.priority);
   if (status !== 'new') Object.assign(inc, { teamId: team.id, teamName: team.name, assignedAt: createdAt });
   if (status === 'closed') inc.closedAt = new Date(Date.parse(createdAt) + 30 * 36e5).toISOString();
-  await doc.send(new PutCommand({ TableName: T.incidents, Item: inc }));
+  try {
+    await doc.send(new PutCommand({
+      TableName: T.incidents,
+      Item: inc,
+      ConditionExpression: 'attribute_not_exists(id)'
+    }));
+  } catch (e) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      continue;
+    }
+
+    throw e;
+  }
   await doc.send(new PutCommand({ TableName: T.history, Item: { incidentId: inc.id, ts: createdAt + '#seed', type: 'reported', to: 'new', note: 'Issue reported', actorId: inc.reporterId, actorName: 'Riya Resident', actorRole: 'resident' } }));
 }
 console.log(`Seeded. Demo password for all accounts: ${PW}`);
