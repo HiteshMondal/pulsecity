@@ -194,7 +194,7 @@ export function Detail({ id }) {
         {i.photoUrl && <img className="photo" src={i.photoUrl} alt="Photo submitted with the report" />}
         <dl>
           <dt>Priority score</dt><dd>{i.priorityScore}</dd><dt>Due by</dt><dd>{when(i.dueAt)}</dd><dt>Team</dt><dd>{i.teamName ? `${i.teamName}${i.assigneeName ? ' · ' + i.assigneeName : ''}` : 'Not assigned yet'}</dd>
-          {i.reporterName && <><dt>Reported by</dt><dd>{i.reporterName}</dd></>}{i.duplicateOf && <><dt>Note</dt><dd>Similar open report nearby: <a href={`#/incidents/${i.duplicateOf}`}>view</a></dd></>}
+          {i.reporterName && <><dt>Reported by</dt><dd>{i.reporterName}</dd></>}{i.duplicateOf && <><dt>Note</dt><dd>Similar open report nearby{user.role !== 'resident' && <> · <a href={`#/incidents/${i.duplicateOf}`}>view</a></>}</dd></>}
         </dl>
       </section>
       <section className="card">

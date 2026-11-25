@@ -6,7 +6,9 @@ import { doc, T } from '../src/db.js';
 import { LOCATIONS, CATEGORIES, TEAMS } from '../src/config.js';
 import { prioritize, dueAt } from '../src/priority.js';
 
-const PW = process.env.SEED_PASSWORD || 'PulseCity#2026';
+const PW = process.env.SEED_PASSWORD;
+if (!PW || (process.env.NODE_ENV === 'production' && PW === 'PulseCity#2026'))
+  throw new Error('Set a strong SEED_PASSWORD before seeding');
 const people = [
   ['Asha Admin', 'admin@pulsecity.test', 'admin'], ['Sam Supervisor', 'supervisor@pulsecity.test', 'supervisor'],
   ['Riya Resident', 'resident@pulsecity.test', 'resident'],
@@ -16,7 +18,10 @@ const ids = {};
 for (const [name, email, role, teamId] of people) {
   const ex = (await doc.send(new QueryCommand({ TableName: T.users, IndexName: 'email-index', KeyConditionExpression: 'email = :e', ExpressionAttributeValues: { ':e': email } }))).Items[0];
   ids[email] = ex?.id || randomUUID();
-  if (!ex) await doc.send(new PutCommand({ TableName: T.users, Item: { id: ids[email], name, email, role, teamId, passwordHash: await bcrypt.hash(PW, 11), createdAt: new Date().toISOString() } }));
+  if (!ex) {
+    await doc.send(new PutCommand({ TableName: T.users, Item: { id: `email#${email}` } }));
+    await doc.send(new PutCommand({ TableName: T.users, Item: { id: ids[email], name, email, role, teamId, passwordHash: await bcrypt.hash(PW, 11), createdAt: new Date().toISOString() } }));
+  }
 }
 const samples = [
   ['drain_blockage', 'central-market', 'Storm drain blocked with debris, water pooling near the bus stop. Overflow risk.', 3, 'new'],

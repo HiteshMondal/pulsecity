@@ -11,7 +11,7 @@ import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 import { cfg, CATEGORIES, LOCATIONS, TEAMS, STATUSES } from './config.js';
 import { doc, T, scanAll } from './db.js';
 import { prioritize, dueAt } from './priority.js';
-import { PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { log } from './log.js';
 
 const s3 = new S3Client({ region: cfg.region }), sns = new SNSClient({ region: cfg.region }), lam = new LambdaClient({ region: cfg.region });
@@ -23,9 +23,26 @@ const MGR = ['supervisor', 'admin'];
 const team = id => TEAMS.find(t => t.id === id);
 const place = id => LOCATIONS.find(l => l.id === id);
 
-function auth(req, _res, next) {
-  try { req.user = jwt.verify((req.headers.authorization || '').replace('Bearer ', ''), cfg.jwtSecret); next(); }
-  catch { next(new HttpError(401, 'Please sign in to continue')); }
+const seen = new Map(); // id -> { at, role, teamId }
+
+setInterval(() => {
+  const cutoff = Date.now() - 5 * 60e3;
+  for (const [id, c] of seen) if (c.at < cutoff) seen.delete(id);
+}, 5 * 60e3).unref();
+
+async function auth(req, _res, next) {
+  try {
+    const t = jwt.verify((req.headers.authorization || '').replace('Bearer ', ''), cfg.jwtSecret, { algorithms: ['HS256'] });
+    let c = seen.get(t.id);
+    if (!c || Date.now() - c.at > 60e3) {
+      const { Item } = await doc.send(new GetCommand({ TableName: T.users, Key: { id: t.id } }));
+      if (!Item) throw new Error('gone');
+      c = { at: Date.now(), role: Item.role, teamId: Item.teamId };
+      seen.set(t.id, c);
+    }
+    req.user = { ...t, role: c.role, teamId: c.teamId };
+    next();
+  } catch { next(new HttpError(401, 'Please sign in to continue')); }
 }
 const need = (...roles) => (req, _res, next) => (roles.includes(req.user.role) ? next() : next(new HttpError(403, 'You do not have access to this action')));
 
@@ -35,7 +52,7 @@ const row = i => ({ id: i.id, category: i.category, locationName: i.locationName
   priorityScore: i.priorityScore, overdue: !!i.overdue && i.status !== 'closed', createdAt: i.createdAt, dueAt: i.dueAt, teamName: i.teamName, duplicateOf: i.duplicateOf });
 
 async function getInc(id) {
-  const { Item } = await doc.send(new GetCommand({ TableName: T.incidents, Key: { id } }));
+  const { Item } = await doc.send(new GetCommand({ TableName: T.incidents, Key: { id }, ConsistentRead: true }));
   if (!Item) throw new HttpError(404, 'Incident not found');
   return Item;
 }
@@ -97,17 +114,33 @@ async function removeUser(u) {
       ExpressionAttributeNames: { '#r': 'role' }, ExpressionAttributeValues: { ':a': 'admin' } });
     if (admins.length <= 1) throw bad('You cannot delete the last administrator');
   }
-  if (u.role === 'resident') { // keep the reports for the city, remove the person's name
-    const q = await doc.send(new QueryCommand({ TableName: T.incidents, IndexName: 'reporter-index',
-      KeyConditionExpression: 'reporterId = :r', ExpressionAttributeValues: { ':r': u.id } }));
-    for (const i of q.Items) await update(i.id, { reporterName: 'Deleted user' });
+  if (u.role === 'resident') { // keep the reports for the city, remove the person's name everywhere
+    const mine = []; let key;
+    do {
+      const q = await doc.send(new QueryCommand({ TableName: T.incidents, IndexName: 'reporter-index',
+        KeyConditionExpression: 'reporterId = :r', ExpressionAttributeValues: { ':r': u.id }, ExclusiveStartKey: key }));
+      mine.push(...q.Items); key = q.LastEvaluatedKey;
+    } while (key);
+    for (const i of mine) {
+      await update(i.id, { reporterName: 'Deleted user' });
+      const h = await doc.send(new QueryCommand({ TableName: T.history, ConsistentRead: true,
+        KeyConditionExpression: 'incidentId = :i', ExpressionAttributeValues: { ':i': i.id } }));
+      for (const e of h.Items.filter(e => e.actorId === u.id))
+        await doc.send(new UpdateCommand({ TableName: T.history, Key: { incidentId: e.incidentId, ts: e.ts },
+          UpdateExpression: 'SET actorName = :n', ExpressionAttributeValues: { ':n': 'Deleted user' } }));
+    }
   }
-  await doc.send(new DeleteCommand({ TableName: T.users, Key: { id: u.id } }));
+  seen.delete(u.id);
+  await doc.send(new TransactWriteCommand({ TransactItems: [   // user and email lock go together or not at all
+    { Delete: { TableName: T.users, Key: { id: u.id } } },
+    { Delete: { TableName: T.users, Key: { id: `email#${u.email}` } } } ] }));
 }
 
 const r = Router();
-const authLimiter = rateLimit({ windowMs: 15 * 60e3, limit: 30, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({ windowMs: 15 * 60e3, limit: 30, skipSuccessfulRequests: true, standardHeaders: true, legacyHeaders: false });
+const registerLimiter = rateLimit({ windowMs: 60 * 60e3, limit: 10, standardHeaders: true, legacyHeaders: false });
 const publicLimiter = rateLimit({ windowMs: 60e3, limit: 60, standardHeaders: true, legacyHeaders: false });
+const userLimiter = rateLimit({ windowMs: 60e3, limit: 20, keyGenerator: req => req.user.id, standardHeaders: true, legacyHeaders: false });
 
 r.get('/health', (_q, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 r.get('/meta', (_q, res) => res.json({ categories: CATEGORIES, locations: LOCATIONS, teams: TEAMS, statuses: STATUSES }));
@@ -125,10 +158,17 @@ async function createUser({ name, email, password, role, teamId }) {
   if (await byEmail(email)) throw new HttpError(409, 'An account with this email already exists');
   const u = { id: randomUUID(), name, email, role, teamId: role === 'staff' ? teamId : undefined,
     passwordHash: await bcrypt.hash(password, 11), createdAt: new Date().toISOString() };
-  await doc.send(new PutCommand({ TableName: T.users, Item: u }));
+  try {
+    await doc.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: T.users, Item: { id: `email#${email}` }, ConditionExpression: 'attribute_not_exists(id)' } },
+      { Put: { TableName: T.users, Item: u } } ] }));
+  } catch (e) {
+    if (e.name === 'TransactionCanceledException') throw new HttpError(409, 'An account with this email already exists');
+    throw e;
+  }
   return u;
 }
-r.post('/auth/register', authLimiter, wrap(async (req, res) => {
+r.post('/auth/register', registerLimiter, wrap(async (req, res) => {
   const u = await createUser({ ...req.body, role: 'resident' });
   res.status(201).json({ token: token(u), user: pub(u) });
 }));
@@ -169,14 +209,14 @@ r.delete('/users/:id', auth, need('admin'), wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 r.get('/users', auth, need(...MGR), wrap(async (req, res) => {
-  const all = await scanAll({ TableName: T.users, FilterExpression: '#r <> :res', ExpressionAttributeNames: { '#r': 'role' }, ExpressionAttributeValues: { ':res': 'resident' } });
+  const all = await scanAll({ TableName: T.users, FilterExpression: 'attribute_exists(email) AND #r <> :res', ExpressionAttributeNames: { '#r': 'role' }, ExpressionAttributeValues: { ':res': 'resident' } });
   const users = all.filter(u => !req.query.teamId || u.teamId === req.query.teamId).map(pub);
   res.json({ users });
 }));
 
 // ---------- uploads (S3 presigned POST: size + type enforced by S3) ----------
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
-r.post('/uploads/presign', auth, wrap(async (req, res) => {
+r.post('/uploads/presign', auth, userLimiter, wrap(async (req, res) => {
   if (!cfg.bucket) throw new HttpError(503, 'Photo uploads are not configured yet');
   const type = req.body.contentType;
   if (!EXT[type]) throw bad('Upload a JPEG, PNG or WebP photo');
@@ -188,7 +228,7 @@ r.post('/uploads/presign', auth, wrap(async (req, res) => {
 const ownKey = (u, k) => { if (k && !String(k).startsWith(`incidents/${u.id}/`)) throw bad('Invalid photo reference'); return k || undefined; };
 
 // ---------- incidents ----------
-r.post('/incidents', auth, wrap(async (req, res) => {
+r.post('/incidents', auth, need('resident', ...MGR), userLimiter, wrap(async (req, res) => {
   const b = req.body, u = req.user;
   if (!CATEGORIES[b.category]) throw bad('Choose a category');
   if (!place(b.locationId)) throw bad('Choose a location');
@@ -213,7 +253,7 @@ r.post('/incidents', auth, wrap(async (req, res) => {
 r.get('/incidents', auth, wrap(async (req, res) => {
   const { status, priority, category, overdue, q } = req.query;
   let list = await listFor(req.user);
-  if (status) list = list.filter(i => i.status === status);
+  if (status) { const sts = String(status).split(','); list = list.filter(i => sts.includes(i.status)); }
   if (priority) list = list.filter(i => i.priority === priority);
   if (category) list = list.filter(i => i.category === category);
   if (overdue === '1') list = list.filter(i => i.overdue && i.status !== 'closed');
@@ -224,16 +264,18 @@ r.get('/incidents', auth, wrap(async (req, res) => {
 
 r.get('/incidents/:id', auth, wrap(async (req, res) => {
   const inc = await getInc(req.params.id), u = req.user; guard(u, inc);
-  const h = await doc.send(new QueryCommand({ TableName: T.history, KeyConditionExpression: 'incidentId = :i', ExpressionAttributeValues: { ':i': inc.id } }));
+  const h = await doc.send(new QueryCommand({ TableName: T.history, ConsistentRead: true,
+    KeyConditionExpression: 'incidentId = :i', ExpressionAttributeValues: { ':i': inc.id } }));
   const history = await Promise.all(h.Items.map(async e => {
     const internal = u.role === 'resident' && !['reported', 'closed'].includes(e.type); // work notes stay internal
     return { ts: e.ts.split('#')[0], type: e.type, from: e.from, to: e.to, note: internal ? undefined : e.note,
       evidenceUrl: internal ? undefined : await sign(e.evidenceKey),
       actorName: u.role === 'resident' ? (e.actorId === u.id ? 'You' : 'City team') : e.actorName };
   }));
-  const incident = { ...row(inc), description: inc.description, landmark: inc.landmark, teamId: inc.teamId, assigneeName: inc.assigneeName,
+  const incident = { ...row(inc), description: inc.description, landmark: inc.landmark,
     photoUrl: await sign(inc.photoKey), closedAt: inc.closedAt };
-  if (MGR.includes(u.role) || inc.reporterId === u.id) incident.reporterName = inc.reporterName; // private details limited
+  if (u.role !== 'resident') { incident.teamId = inc.teamId; incident.assigneeName = inc.assigneeName; } // staff details hidden from residents
+  if (MGR.includes(u.role) || inc.reporterId === u.id) incident.reporterName = inc.reporterName;
   res.json({ incident, history });
 }));
 
