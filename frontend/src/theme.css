@@ -1,0 +1,133 @@
+/* PulseCity theme layer. Loaded AFTER styles.css: horizontal top bar + extra eye candy.
+   Pure CSS (no new dependencies, no markup changes in pages). Reduced-motion is handled by styles.css. */
+
+@property --t1{syntax:'<color>';inherits:true;initial-value:#2fc4a6}
+@property --t2{syntax:'<color>';inherits:true;initial-value:#9ff0dc}
+
+/* ================= Top bar (replaces the left sidebar) ================= */
+.shell{display:block;grid-template-columns:none;min-height:100vh}
+.shell main{margin:0 auto}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:1.2rem;padding:.6rem clamp(1rem,3vw,2.5rem);color:#e6f0ee;
+  background:linear-gradient(110deg,rgba(8,47,51,.93),rgba(13,70,67,.9) 55%,rgba(8,47,51,.93));
+  backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);
+  box-shadow:0 18px 40px -26px rgba(4,37,39,.85);animation:dropIn .7s var(--ease) both}
+.topbar::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(340px 90px at 0 100%,rgba(255,138,69,.30),transparent 70%),radial-gradient(420px 110px at 100% 0,rgba(56,172,151,.34),transparent 70%)}
+.topbar::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--sig),var(--sig2),#5fd0b8,var(--deep3),transparent) 0 0/220% 100%;animation:flow 6s linear infinite}
+.topbar>*{position:relative;z-index:1}
+.topbar .brand{flex:0 0 auto;padding:0 .2rem}
+.topbar nav{flex:1;flex-direction:row;flex-wrap:nowrap;justify-content:safe center;gap:.3rem;margin:0;width:auto;
+  overflow-x:auto;overflow-y:hidden;padding:.35rem .2rem;scrollbar-width:none}
+.topbar nav::-webkit-scrollbar{display:none}
+.topbar nav a{flex:0 0 auto;white-space:nowrap;padding:.58rem 1.05rem;border-radius:999px;font-size:.93rem;
+  animation:linkIn .5s var(--ease) calc(var(--i,0)*.06s + .15s) backwards}
+.topbar nav a:nth-child(1){--i:0}.topbar nav a:nth-child(2){--i:1}.topbar nav a:nth-child(3){--i:2}.topbar nav a:nth-child(4){--i:3}
+.topbar nav a:nth-child(5){--i:4}.topbar nav a:nth-child(6){--i:5}.topbar nav a:nth-child(7){--i:6}
+.topbar nav a:hover{transform:translateY(-2px);background:rgba(255,255,255,.11);color:#fff}
+.topbar nav a[aria-current=page],.topbar nav a[aria-current=page]:hover{background:linear-gradient(120deg,#ffb16d,#ff8846);color:#26180c;font-weight:700;border-color:transparent;
+  box-shadow:0 10px 24px -10px rgba(255,138,69,.9),inset 0 1px rgba(255,255,255,.5);
+  animation:linkIn .5s var(--ease) calc(var(--i,0)*.06s + .15s) backwards,glowNav 3s ease-in-out .8s infinite}
+.topbar .me{flex:0 0 auto;margin:0;width:auto;flex-direction:row;align-items:center;gap:.6rem;padding:.38rem .45rem .38rem 1rem;border-radius:999px;white-space:nowrap}
+.topbar .me b{max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.topbar .me span{font-size:.78rem;padding:.12rem .6rem;border-radius:99px;background:rgba(255,255,255,.1)}
+.topbar .link{margin:0;padding:.4rem .9rem;border-radius:99px;text-decoration:none;font-weight:600;color:#ffcfae;background:rgba(255,189,148,.15);transition:background .2s,color .2s,transform .2s var(--ease)}
+.topbar .link:hover{background:var(--sig);color:#1b1209;transform:translateY(-1px)}
+@keyframes dropIn{from{opacity:0;transform:translateY(-100%)}}
+@keyframes linkIn{from{opacity:0;transform:translateY(-10px) scale(.9)}}
+@keyframes flow{to{background-position:220% 0}}
+@keyframes glowNav{50%{box-shadow:0 12px 32px -8px rgba(255,138,69,1),inset 0 1px rgba(255,255,255,.5)}}
+@media(max-width:900px){
+  .topbar{flex-wrap:wrap;gap:.45rem .8rem;padding:.6rem 1rem}
+  .topbar .brand{margin-right:auto}
+  .topbar .me{order:2}
+  .topbar nav{order:3;flex:1 1 100%;justify-content:flex-start}
+}
+@media(max-width:560px){
+  .topbar .me{width:auto;flex-wrap:nowrap;padding-left:.8rem}
+  .topbar .me span{display:none}
+  .topbar .me b{max-width:90px}
+}
+
+/* ================= Site-wide extra sparkle ================= */
+html{scrollbar-color:#8fb7ad transparent}
+.card h2::before,main>h2::before{content:"";display:inline-block;width:6px;height:1em;margin-right:.55rem;vertical-align:-.12em;border-radius:4px;background:linear-gradient(var(--sig),var(--deep3))}
+.card:not(.auth)::after{content:"";position:absolute;left:12%;right:12%;top:0;height:2px;border-radius:2px;pointer-events:none;opacity:0;transition:opacity .4s;
+  background:linear-gradient(90deg,transparent,var(--sig2),transparent)}
+.card:not(.auth):hover::after{opacity:1}
+.p-urgent{animation:urgentGlow 2s ease-in-out infinite}
+@keyframes urgentGlow{50%{box-shadow:inset 0 0 0 1px rgba(200,50,28,.3),0 0 0 5px rgba(200,50,28,.12)}}
+.stat:hover::after{opacity:.4;transition:opacity .3s}
+.timeline li:hover::before{transform:scale(1.35);transition:transform .25s var(--ease)}
+
+/* ================= Login / sign-up showpiece ================= */
+.login{--t1:#2fc4a6;--t2:#9ff0dc;position:relative;overflow:hidden;transition:--t1 .8s ease,--t2 .8s ease}
+.login:has(form.tone-staff){--t1:#ff8a45;--t2:#ffc27d}
+.login:has(form.tone-supervisor){--t1:#4b7bec;--t2:#9db8ff}
+.login:has(form.tone-admin){--t1:#b04bd8;--t2:#e3a2ff}
+
+/* rotating aurora whose colours follow the selected role */
+.hero::before{width:900px;height:900px;right:-260px;top:-380px;border-radius:50%;filter:blur(70px);opacity:.6;
+  background:conic-gradient(from var(--ang),transparent,var(--t1),transparent 35%,var(--t2) 55%,transparent 78%,var(--t1));animation:spin 16s linear infinite}
+.hero::after{animation:drift 30s linear infinite}
+@keyframes drift{to{background-position:62px 31px}}
+
+/* headline: travelling shimmer + growing accent line */
+.hero h1{background:linear-gradient(100deg,#fff 0%,#c1eee1 32%,#ffd2ae 46%,#fff 54%,#9ff0dc 70%,#fff 100%);background-size:260% 100%;
+  -webkit-background-clip:text;background-clip:text;animation:rise .9s var(--ease) both,shimmerH 7s ease-in-out 1s infinite alternate}
+.hero h1::after{content:"";display:block;width:150px;height:6px;margin-top:1.3rem;border-radius:9px;transform-origin:left;
+  background:linear-gradient(90deg,var(--t1),var(--t2),transparent);animation:ulGrow 1.3s .7s var(--ease) both}
+@keyframes shimmerH{from{background-position:100% 0}to{background-position:0 0}}
+@keyframes ulGrow{from{transform:scaleX(0)}}
+.hero .ghost{animation:rise .9s var(--ease) .3s both,ghostPulse 2.8s ease-out 1.6s infinite}
+@keyframes ghostPulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--t2),transparent 45%)}70%,100%{box-shadow:0 0 0 18px transparent}}
+
+/* living skyline: sun crosses the sky, windows change colour, road glows */
+.city-sun{animation:sunBreathe 8s ease-in-out infinite,sunTravel 30s ease-in-out infinite alternate;filter:blur(5px)}
+@keyframes sunTravel{from{translate:-420px 70px}to{translate:150px -30px}}
+.city-windows{animation:windowGlow 5s ease-in-out infinite alternate,winColor 7s linear infinite;filter:drop-shadow(0 0 4px rgba(184,238,224,.8))}
+@keyframes winColor{0%,100%{fill:#b8eee0}35%{fill:#ffd9b0}65%{fill:#9ff0dc}85%{fill:#ffe9c9}}
+.city-road{stroke:rgba(145,213,193,.45);animation:roadGlow 4s ease-in-out infinite alternate}
+@keyframes roadGlow{to{stroke:rgba(255,170,110,.75)}}
+
+/* shooting star + live "city feed" chip (pseudo-elements of .login) */
+.login::before{content:"";position:absolute;z-index:3;pointer-events:none;top:14%;left:-8%;width:180px;height:2px;border-radius:2px;opacity:0;
+  background:linear-gradient(90deg,transparent,#fff);transform:rotate(24deg);animation:shoot 8s ease-in 1.5s infinite}
+@keyframes shoot{0%{opacity:0;transform:translate(0,0) rotate(24deg)}3%{opacity:1}12%,100%{opacity:0;transform:translate(560px,250px) rotate(24deg)}}
+.login::after{content:"Pothole fixed in Old Town";position:absolute;z-index:3;pointer-events:none;top:clamp(1.2rem,5vh,3rem);left:clamp(1.5rem,5vw,5rem);
+  padding:.55rem 1.1rem .55rem 2.4rem;border-radius:999px;color:#eafff8;font:600 .86rem var(--display);letter-spacing:.01em;
+  background:radial-gradient(circle at 1.15rem 50%,var(--t2) .3rem,color-mix(in srgb,var(--t2),transparent 70%) .34rem .75rem,transparent .8rem),rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.3);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 14px 30px -18px #001e1d;
+  animation:feed 12s ease-in-out infinite,chipBob 4s ease-in-out infinite}
+@keyframes feed{
+  0%{content:"Pothole fixed in Old Town";opacity:0;translate:0 12px}
+  4%,28%{content:"Pothole fixed in Old Town";opacity:1;translate:0 0}
+  32%{content:"Pothole fixed in Old Town";opacity:0;translate:0 -12px}
+  33%{content:"Streetlight restored in Tech Park";opacity:0;translate:0 12px}
+  37%,61%{content:"Streetlight restored in Tech Park";opacity:1;translate:0 0}
+  65%{content:"Streetlight restored in Tech Park";opacity:0;translate:0 -12px}
+  66%{content:"Drain cleared in Riverside Quarter";opacity:0;translate:0 12px}
+  70%,94%{content:"Drain cleared in Riverside Quarter";opacity:1;translate:0 0}
+  98%,100%{content:"Drain cleared in Riverside Quarter";opacity:0;translate:0 -12px}}
+@keyframes chipBob{50%{transform:translateY(-5px)}}
+
+/* auth card: floats, sheen sweeps across, staggered role cards, tone-aware focus */
+.auth{animation:authIn .9s var(--ease) both,floaty 7s ease-in-out 1s infinite}
+@keyframes floaty{50%{translate:0 -8px}}
+.auth::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(115deg,transparent 38%,color-mix(in srgb,var(--tone2),transparent 72%) 50%,transparent 62%) 150% 0/250% 100% no-repeat;
+  animation:sheen 6.5s ease-in-out 1.5s infinite}
+@keyframes sheen{0%{background-position:150% 0}45%,100%{background-position:-50% 0}}
+.role{animation:roleIn .6s cubic-bezier(.3,1.5,.5,1) backwards}
+.roles .role:nth-child(1){animation-delay:.35s}.roles .role:nth-child(2){animation-delay:.43s}
+.roles .role:nth-child(3){animation-delay:.51s}.roles .role:nth-child(4){animation-delay:.59s}
+@keyframes roleIn{from{opacity:0;transform:translateY(16px) scale(.85) rotate(-3deg)}}
+.role[aria-checked=true] svg{animation:wiggle 2.4s ease-in-out infinite}
+@keyframes wiggle{50%{transform:rotate(-8deg) scale(1.14)}}
+.auth label{transition:color .25s}
+.auth label:focus-within{color:var(--tone)}
+.auth input:focus,.auth select:focus{border-color:var(--tone);box-shadow:0 0 0 4px color-mix(in srgb,var(--tone),transparent 84%),0 8px 18px -12px var(--tone)}
+.auth .primary{background:linear-gradient(110deg,var(--tone),color-mix(in srgb,var(--tone),#000 38%),var(--tone2),var(--tone));background-size:300% 100%;animation:btnFlow 6s linear infinite}
+@keyframes btnFlow{to{background-position:300% 0}}
+
+@media(max-width:860px){.login::after{left:1.2rem;top:1rem;font-size:.8rem}.login::before{display:none}}
