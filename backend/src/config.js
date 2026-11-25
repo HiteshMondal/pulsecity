@@ -40,3 +40,11 @@ export const TEAMS = [
   { id: 'sanitation', name: 'Sanitation & Parks' },
 ];
 export const STATUSES = ['new', 'assigned', 'in_progress', 'awaiting_verification', 'closed'];
+
+// Role self-signup. Residents are always open. Other roles need an access code set on the server;
+export const SIGNUP_CODES = {
+  staff: env.STAFF_SIGNUP_CODE || '',
+  supervisor: env.SUPERVISOR_SIGNUP_CODE || '',
+  admin: env.ADMIN_SIGNUP_CODE || '',
+};
+export const ROLES = { resident: 'Resident', staff: 'Crew', supervisor: 'Supervisor', admin: 'Admin' };

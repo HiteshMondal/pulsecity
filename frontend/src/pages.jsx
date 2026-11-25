@@ -51,18 +51,33 @@ function Table({ rows, cats }) {
   );
 }
 
+const ROLES = [
+  { id: 'resident', name: 'Resident', hint: 'Report and track issues', d: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0' },
+  { id: 'staff', name: 'Crew', hint: 'Fix assigned work', d: 'M3 17h18M5 17a7 7 0 0114 0M12 6v5M9 17v-3' },
+  { id: 'supervisor', name: 'Supervisor', hint: 'Assign and verify', d: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 14l2 2 4-4' },
+  { id: 'admin', name: 'Admin', hint: 'Run the whole city', d: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3zM9 12l2 2 4-4' },
+];
+
 export function Login({ onAuth }) {
   const { meta } = useApp();
-  const [reg, setReg] = useState(false), [f, setF] = useState({ name: '', email: '', password: '' }), [e, setE] = useState(''), [busy, setBusy] = useState(false);
+  const [reg, setReg] = useState(false), [role, setRole] = useState('resident'), [teamId, setTeamId] = useState(meta.teams[0].id), [code, setCode] = useState('');
+  const [f, setF] = useState({ name: '', email: '', password: '' }), [e, setE] = useState(''), [busy, setBusy] = useState(false);
   const set = k => ev => setF({ ...f, [k]: ev.target.value });
+  const cur = ROLES.find(r => r.id === role);
+  const closed = reg && role !== 'resident' && meta.signupRoles?.[role] === 'closed';
   const go = async ev => {
     ev.preventDefault(); setBusy(true); setE('');
-    try { const d = await api(reg ? '/auth/register' : '/auth/login', { method: 'POST', body: f }); setToken(d.token); onAuth(d.user); }
-    catch (x) { setE(x.message); } finally { setBusy(false); }
+    try {
+      const body = reg ? { ...f, role, teamId: role === 'staff' ? teamId : undefined, accessCode: role === 'resident' ? undefined : code }
+                       : { email: f.email, password: f.password, role };
+      const d = await api(reg ? '/auth/register' : '/auth/login', { method: 'POST', body });
+      setToken(d.token); onAuth(d.user);
+    } catch (x) { setE(x.message); } finally { setBusy(false); }
   };
   return (
     <div className="login">
       <section className="hero">
+        <div className="sparks" aria-hidden="true">{Array.from({ length: 16 }, (_, n) => <span key={n} style={{ '--x': `${(n * 37) % 100}%`, '--d': `${6 + (n * 7) % 9}s`, '--s': `${(n * 3) % 7 - 3}s`, '--z': 3 + (n % 4) }} />)}</div>
         <svg className="city-art" viewBox="0 0 960 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
           <defs>
             <linearGradient id="cityFar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#54b9a8" stopOpacity=".2" /><stop offset="1" stopColor="#0b3534" stopOpacity=".48" /></linearGradient>
@@ -91,14 +106,25 @@ export function Login({ onAuth }) {
         <p>Blocked drains, potholes, dead streetlights: tell your city once, follow the repair from report to verified fix.</p>
         <a className="ghost" href="#/board">View the public board</a>
       </section>
-      <form className="card auth" onSubmit={go}>
+      <form className={`card auth tone-${role}`} onSubmit={go}>
         <h2>{reg ? 'Create your account' : 'Sign in'}</h2>
+        <div className="roles" role="radiogroup" aria-label="Account type">
+          {ROLES.map(r => (
+            <button type="button" key={r.id} role="radio" aria-checked={role === r.id} className={`role tone-${r.id}`} onClick={() => { setRole(r.id); setE(''); }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d={r.d} /></svg>
+              <b>{r.name}</b><small>{r.hint}</small>
+            </button>))}
+        </div>
+        <p className="as" key={role + reg}>{reg ? 'Joining' : 'Signing in'} as <b>{cur.name}</b></p>
         {reg && <label>Full name<input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></label>}
         <label>Email<input required type="email" value={f.email} onChange={set('email')} autoComplete="email" /></label>
         <label>Password<input required type="password" minLength={reg ? 8 : 1} value={f.password} onChange={set('password')} autoComplete={reg ? 'new-password' : 'current-password'} />{reg && <small>At least 8 characters</small>}</label>
+        {reg && role === 'staff' && <label>Your team<select value={teamId} onChange={ev => setTeamId(ev.target.value)}>{meta.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
+        {reg && role !== 'resident' && !closed && <label>Access code<input required type="password" value={code} onChange={ev => setCode(ev.target.value)} autoComplete="off" /><small>Given to you by your city administrator</small></label>}
+        {closed && <p className="note">{cur.name} accounts are invite-only. Ask an administrator to create yours, then sign in here.</p>}
         <Err e={e} />
-        <button className="primary" disabled={busy}>{busy ? 'Please wait…' : reg ? 'Create account' : 'Sign in'}</button>
-        <button type="button" className="link" onClick={() => { setReg(!reg); setE(''); }}>{reg ? 'I already have an account' : 'New here? Create a resident account'}</button>
+        <button className="primary" disabled={busy || closed}>{busy ? 'Please wait…' : reg ? `Create ${cur.name.toLowerCase()} account` : `Sign in as ${cur.name.toLowerCase()}`}</button>
+        <button type="button" className="link" onClick={() => { setReg(!reg); setE(''); }}>{reg ? 'I already have an account' : 'New here? Create an account'}</button>
       </form>
     </div>
   );

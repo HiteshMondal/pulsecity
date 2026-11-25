@@ -6,9 +6,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch --env-file=.env src/server.js",
-    "seed": "node --env-file=.env scripts/seed.js",
-    "clear-samples": "node --env-file=.env scripts/clear-samples.js"
+    "dev": "node --watch --env-file=.env src/server.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",

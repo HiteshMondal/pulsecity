@@ -2,13 +2,13 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, timingSafeEqual } from 'crypto';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
-import { cfg, CATEGORIES, LOCATIONS, TEAMS, STATUSES } from './config.js';
+import { cfg, CATEGORIES, LOCATIONS, TEAMS, STATUSES, SIGNUP_CODES, ROLES } from './config.js';
 import { doc, T, scanAll } from './db.js';
 import { prioritize, dueAt } from './priority.js';
 import { PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
@@ -143,7 +143,9 @@ const publicLimiter = rateLimit({ windowMs: 60e3, limit: 60, standardHeaders: tr
 const userLimiter = rateLimit({ windowMs: 60e3, limit: 20, keyGenerator: req => req.user.id, standardHeaders: true, legacyHeaders: false });
 
 r.get('/health', (_q, res) => res.json({ ok: true, ts: new Date().toISOString() }));
-r.get('/meta', (_q, res) => res.json({ categories: CATEGORIES, locations: LOCATIONS, teams: TEAMS, statuses: STATUSES }));
+const signupRoles = () => Object.fromEntries(Object.keys(ROLES).map(k =>
+  [k, k === 'resident' ? 'open' : SIGNUP_CODES[k] ? 'code' : 'closed']));
+r.get('/meta', (_q, res) => res.json({ categories: CATEGORIES, locations: LOCATIONS, teams: TEAMS, statuses: STATUSES, signupRoles: signupRoles() }));
 
 // ---------- auth ----------
 const token = u => jwt.sign({ id: u.id, name: u.name, role: u.role, teamId: u.teamId }, cfg.jwtSecret, { expiresIn: '8h' });
@@ -168,8 +170,18 @@ async function createUser({ name, email, password, role, teamId }) {
   }
   return u;
 }
+const sameCode = (a, b) => timingSafeEqual(createHash('sha256').update(String(a || '')).digest(), createHash('sha256').update(String(b)).digest());
 r.post('/auth/register', registerLimiter, wrap(async (req, res) => {
-  const u = await createUser({ ...req.body, role: 'resident' });
+  const role = Object.hasOwn(ROLES, req.body.role) ? req.body.role : 'resident';
+  let teamId;
+  if (role !== 'resident') {
+    const expected = SIGNUP_CODES[role];
+    if (!expected) throw new HttpError(403, `${ROLES[role]} accounts are invite-only. Ask an administrator to create yours.`);
+    if (!sameCode(req.body.accessCode, expected)) throw new HttpError(403, 'Access code is incorrect');
+    if (role === 'staff') { teamId = req.body.teamId; if (!team(teamId)) throw bad('Choose your team'); }
+  }
+  const u = await createUser({ name: req.body.name, email: req.body.email, password: req.body.password, role, teamId });
+  log('info', 'user.registered', { id: u.id, role });
   res.status(201).json({ token: token(u), user: pub(u) });
 }));
 const DUMMY = bcrypt.hashSync('not-a-real-password', 11);
@@ -177,6 +189,9 @@ r.post('/auth/login', authLimiter, wrap(async (req, res) => {
   const u = await byEmail(clean(req.body.email, 120).toLowerCase());
   const ok = await bcrypt.compare(String(req.body.password || ''), u?.passwordHash || DUMMY);
   if (!u || !ok) throw new HttpError(401, 'Email or password is incorrect');
+  const want = req.body.role;   // optional; checked only after the password is proven, so it leaks nothing
+  if (want && Object.hasOwn(ROLES, want) && want !== u.role)
+    throw new HttpError(403, `This is a ${ROLES[u.role]} account. Choose "${ROLES[u.role]}" and try again.`);
   res.json({ token: token(u), user: pub(u) });
 }));
 r.get('/auth/me', auth, wrap(async (req, res) => {
